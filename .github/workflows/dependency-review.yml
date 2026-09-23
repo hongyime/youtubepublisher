@@ -1,0 +1,30 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions: read-all
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Skip unsupported private repositories
+        if: github.event.repository.private
+        run: |
+          echo "Dependency Review requires dependency graph/GHAS support on private repositories."
+          echo "Skipping instead of failing this Dependabot PR."
+
+      - uses: actions/checkout@v7
+        if: ${{ !github.event.repository.private }}
+
+      - name: Dependency Review
+        if: ${{ !github.event.repository.private }}
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: always
