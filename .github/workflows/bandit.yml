@@ -1,0 +1,86 @@
+name: Bandit
+
+# Free Python SAST via PyCQA/bandit. Runs only when Python files change.
+# Uploads SARIF to GitHub Code Scanning tab.
+# Skips repos with no .py files thanks to the paths filter.
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "**.py"
+      - "requirements*.txt"
+      - "pyproject.toml"
+      - "setup.py"
+      - "setup.cfg"
+  push:
+    branches: [main, master]
+    paths:
+      - "**.py"
+  schedule:
+    # Weekly Monday, staggered from semgrep. Minute 23.
+    - cron: "23 10 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: bandit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write   # upload SARIF to Code Scanning
+
+jobs:
+  bandit:
+    name: bandit/scan
+    runs-on: ubuntu-latest
+    # Skip Dependabot noise; also skip if no Python at all (guarded by find below)
+    if: (github.actor != 'dependabot[bot]')
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Detect Python source
+        id: detect
+        run: |
+          if find . -type f -name '*.py' \
+               ! -path './.venv/*' ! -path './venv/*' ! -path './__pycache__/*' \
+               ! -path './node_modules/*' ! -path './.git/*' \
+               -print -quit | grep -q .; then
+            echo "has_python=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_python=false" >> "$GITHUB_OUTPUT"
+            echo "No Python source found — skipping bandit."
+          fi
+
+      - uses: actions/setup-python@v7
+        if: steps.detect.outputs.has_python == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        if: steps.detect.outputs.has_python == 'true'
+        run: pip install --disable-pip-version-check bandit[sarif]==1.7.10
+
+      - name: Run bandit (SARIF)
+        if: steps.detect.outputs.has_python == 'true'
+        run: |
+          bandit -r . \
+            -x './.venv,./venv,./__pycache__,./node_modules,./.git,./tests,./test' \
+            -f sarif -o bandit.sarif \
+            --severity-level low --confidence-level low \
+            || true
+
+      - name: Upload SARIF to Code Scanning
+        if: always() && steps.detect.outputs.has_python == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: bandit.sarif
+          category: bandit
+
+      - name: Upload SARIF as artifact (backup)
+        if: always() && steps.detect.outputs.has_python == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: bandit-sarif
+          path: bandit.sarif
+          retention-days: 14
