@@ -1,0 +1,76 @@
+name: LFS Guard
+
+# LFS ACCIDENT PREVENTION (2026-07-07):
+# Fails any push or PR that adds Git LFS pointer files. The 3-repo LFS
+# cleanup (pokemoncards 11.6 GB, nusnetID2021 210 MB, sgWerkzPhotography2021
+# 75 MB) is expensive to undo — this guard blocks new occurrences at the
+# source.
+#
+# OPT-OUT: add the GitHub topic `keep-lfs` to this repo:
+#   gh repo edit <owner>/<repo> --add-topic keep-lfs
+# The workflow will detect the topic and exit as a no-op. The sourcerepo
+# weekly sync also skips overwriting .gitattributes for repos with this topic.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+concurrency:
+  group: lfs-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check opt-out topic
+        id: opt-out
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TOPICS=$(gh api "repos/${{ github.repository }}/topics" --jq '.names | join(",")' 2>/dev/null || echo "")
+          echo "Topics: ${TOPICS:-none}"
+          if [[ ",$TOPICS," == *",keep-lfs,"* ]]; then
+            echo "opt_out=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Repo has 'keep-lfs' topic → LFS guard is a no-op."
+          else
+            echo "opt_out=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.opt-out.outputs.opt_out != 'true'
+        uses: actions/checkout@v7
+        with:
+          # The guard reads only the current index, including a PR merge checkout.
+          fetch-depth: 1
+
+      - name: Scan for LFS pointer files
+        if: steps.opt-out.outputs.opt_out != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A Git LFS pointer file starts with `version https://git-lfs.github.com/spec/v1`
+          # and is small (< 200 bytes). Grep for the sentinel line across HEAD.
+          scan_status=0
+          POINTERS=$(git grep -l --cached "^version https://git-lfs.github.com/spec/v1" -- '*') || scan_status=$?
+          if [ "$scan_status" -gt 1 ]; then
+            echo "::error::Unable to scan the current index for LFS pointer files."
+            exit "$scan_status"
+          fi
+          if [ -n "$POINTERS" ]; then
+            echo "::error::Git LFS pointer files detected in HEAD."
+            echo "Files:"
+            echo "$POINTERS"
+            echo ""
+            echo "This repository uses the sourcerepo prevention policy — no LFS."
+            echo "Fix options:"
+            echo "  1. Remove the file (git rm) and store externally (S3/R2/CDN)."
+            echo "  2. If LFS is genuinely required, opt out with:"
+            echo "     gh repo edit ${{ github.repository }} --add-topic keep-lfs"
+            exit 1
+          fi
+          echo "✅ No LFS pointer files found."
