@@ -1,0 +1,43 @@
+name: Dependabot Auto-Merge
+
+# No pull_request trigger: merge credentials never run PR-owned code.
+# No polling runner: build/status completion or an explicit sweep re-evaluates.
+on:
+  workflow_run:
+    workflows: ["Build Check", "TruffleHog Secret Scan", "Dependency Review", "CodeQL", "CodeQL Analysis", "Bandit", "Semgrep", "LFS Guard"]
+    types: [completed]
+  status:
+  workflow_dispatch:
+
+concurrency:
+  group: checked-bot-merge-dependabot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  checked-merge:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'status' && github.event.state == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      actions: read
+      statuses: read
+    steps:
+      - name: Read trusted default-branch merge policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Check required results and merge the exact head
+        run: python3 .github/scripts/checked-bot-merge.py --group dependabot
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
