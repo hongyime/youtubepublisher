@@ -1,0 +1,54 @@
+name: Summarize new issues
+
+on:
+  issues:
+    types: [opened]
+
+permissions: read-all
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      models: read
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Sanitize issue inputs
+        id: sanitize
+        # Pass untrusted issue content via env vars, never via expression interpolation
+        # in shell commands. This prevents both shell injection and prompt injection.
+        run: |
+          {
+            echo "title<<EOF"
+            echo "$ISSUE_TITLE"
+            echo "EOF"
+            echo "body<<EOF"
+            echo "$ISSUE_BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+
+      - name: Run AI inference
+        id: inference
+        uses: actions/ai-inference@v3
+        with:
+          prompt: |
+            Summarize the following GitHub issue in one paragraph:
+            Title: ${{ steps.sanitize.outputs.title }}
+            Body: ${{ steps.sanitize.outputs.body }}
+
+      - name: Comment with AI summary
+        # SECURITY: LLM output passed via env var RESPONSE, never interpolated
+        # directly into the shell command string, preventing command injection.
+        run: gh issue comment "$ISSUE_NUMBER" --body "$RESPONSE"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RESPONSE: ${{ steps.inference.outputs.response }}
