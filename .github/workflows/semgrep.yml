@@ -1,0 +1,91 @@
+name: Semgrep
+
+# Free community SAST via Semgrep OSS engine + p/default + p/security-audit rulesets.
+# Uploads SARIF to GitHub Code Scanning tab (Security → Code scanning alerts).
+# No paid account, no cloud dashboard — purely local ruleset scan.
+# Docs: https://semgrep.dev/docs/semgrep-ci/sample-ci-configs#github-actions
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - "**.py"
+      - "**.js"
+      - "**.jsx"
+      - "**.ts"
+      - "**.tsx"
+      - "**.go"
+      - "**.rs"
+      - "**.java"
+      - "**.rb"
+      - "**.php"
+      - "**.html"
+      - "**.yaml"
+      - "**.yml"
+      - "**.json"
+  push:
+    branches: [main, master]
+    paths:
+      - "**.py"
+      - "**.js"
+      - "**.jsx"
+      - "**.ts"
+      - "**.tsx"
+      - "**.go"
+      - "**.rs"
+      - "**.java"
+      - "**.rb"
+      - "**.php"
+      - "**.html"
+  schedule:
+    # Weekly Monday, staggered — matches heartbeat cron style. Minute 17.
+    - cron: "17 10 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: semgrep-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write   # upload SARIF to Code Scanning
+  pull-requests: read
+
+jobs:
+  semgrep:
+    name: semgrep/scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    # Skip on Dependabot bot-authored branches to avoid noise
+    if: (github.actor != 'dependabot[bot]')
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run Semgrep (community rulesets)
+        run: |
+          semgrep scan \
+            --config "p/default" \
+            --config "p/security-audit" \
+            --config "p/secrets" \
+            --sarif --output=semgrep.sarif \
+            --error --skip-unknown-extensions --disable-version-check \
+            --metrics=off \
+            || true   # never fail the workflow — findings go to Code Scanning UI
+
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+      - name: Upload SARIF as artifact (backup)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          retention-days: 14
