@@ -37,7 +37,7 @@ jobs:
     # Skip Dependabot noise; also skip if no Python at all (guarded by find below)
     if: (github.actor != 'dependabot[bot]')
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Detect Python source
         id: detect
@@ -52,7 +52,7 @@ jobs:
             echo "No Python source found — skipping bandit."
           fi
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         if: steps.detect.outputs.has_python == 'true'
         with:
           python-version: "3.12"
@@ -72,14 +72,14 @@ jobs:
 
       - name: Upload SARIF to Code Scanning
         if: always() && steps.detect.outputs.has_python == 'true'
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: bandit.sarif
           category: bandit
 
       - name: Upload SARIF as artifact (backup)
         if: always() && steps.detect.outputs.has_python == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: bandit-sarif
           path: bandit.sarif
