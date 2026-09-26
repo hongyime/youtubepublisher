@@ -11,7 +11,7 @@ jobs:
   greet:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/first-interaction@v1.1.0
+    - uses: actions/first-interaction@bd33205aa5c96838e10fd65df0d01efd613677c1 # v1.1.0
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
         # The action automatically looks for .github/greetings.yml
